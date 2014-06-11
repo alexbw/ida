@@ -1,3 +1,5 @@
+import numpy as np
+
 def get_norep(labels):
     labels_norep = []
     durations = []
@@ -22,12 +24,10 @@ def find_highs(data, thresh=100, min_length=15):
 
 
 
-def go(img_path,downsample_fact=0.05):
-    import ndimage
+def process(img,downsample_fact=0.05):
+    import scipy.ndimage as ndimage
     import skimage.io
 
-
-    
     # Downsample the image
     r = []
     for i in range(3):
@@ -58,10 +58,11 @@ def go(img_path,downsample_fact=0.05):
             position.append((iheight,iwidth))
 
     data = []
+    out_imgs = []
     for i,test_img in enumerate(test_imgs):
-        subplot(gs[i])
         t = test_img[:,:,0]-test_img.mean(2)
         t = t[:150]
+        out_imgs.append(t)
         data.append(t.mean(1)/t.mean(1).max())
 
-    return data, position
+    return data, position, out_imgs
