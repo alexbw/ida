@@ -13,7 +13,6 @@ def get_norep(labels):
             durations.append(1)
     return np.array(labels_norep), np.array(durations)
 
-
 def find_highs(data, thresh=100, min_length=15):
     highs, durations = get_norep((data>thresh).astype('int32'))
     idx = np.argwhere((durations>min_length)&(highs==1)).ravel()
@@ -21,8 +20,42 @@ def find_highs(data, thresh=100, min_length=15):
     regions = np.vstack([cdur[idx],cdur[idx+1]]).T
     return regions
 
+def unique_indices(x,unique_x=None):
+    if unique_x == None:
+        unique_x = np.unique(x)
+    new_x = np.zeros_like(x)
+    for i,ux in enumerate(unique_x):
+        new_x[x==ux] = i
+    return new_x, unique_x
 
+def do_shift(image, shift, dest_size = (150,20)):
+    out = np.zeros(dest_size, dtype='float32')
+    h,w = np.minimum(image.shape[0]-shift, image.shape[0]), np.minimum(image.shape[1], dest_size[1])
+    if image.ndim == 2:
+        out[:h,:w] = image[shift:,:w]
+    elif image.ndim == 3:
+        out[:h,:w] = image[shift:,:w,:]
+    else: 
+        raise ValueError("Incorrect image dimensions")
+    return out
 
+def smooth(signal, std=2):
+    "Smooths a 1D signal"
+    from scipy.signal import gaussian
+    smoothingKernel = gaussian(std*5,std)
+    smoothingKernel /= np.sum(smoothingKernel)
+    signal = np.convolve(signal, smoothingKernel, 'same')    
+    return signal
+
+def local_minima(a):
+    return np.r_[True, a[1:] < a[:-1]] & np.r_[a[:-1] < a[1:], True]
+
+def local_maxima(a):
+    return local_minima(-a)
+
+def get_boundary_data(data, k=7, sigma=3):
+    w = np.r_[[0]*(k/2),data[k:] - data[:-k],[0]*(k/2)]
+    return smooth(w,sigma)
 
 def process(img,downsample_fact=0.05):
     import scipy.ndimage as ndimage
@@ -56,13 +89,17 @@ def process(img,downsample_fact=0.05):
             I = r[h1:h2,w1:w2,:]
             test_imgs.append(I)
             position.append((iheight,iwidth))
-
+            
+    # Shift the sub-images to remove the plug. 
+    shifts = [find_highs(np.mean((test_img[:,:,0]-test_img.mean(2))**2.0,1), 200, min_length=10).ravel()[0] 
+              for test_img in test_imgs]
+    test_imgs = [I[shift:,:,:] for I,shift in zip(test_imgs, shifts)]
+    
+    # Extract fittable data
     data = []
     out_imgs = []
     for i,test_img in enumerate(test_imgs):
-        t = test_img[:,:,0]-test_img.mean(2)
-        t = t[:150]
-        out_imgs.append(t)
-        data.append(t.mean(1)/t.mean(1).max())
+        data.append(-np.median(test_img, axis=1).mean(1))
+        out_imgs.append(test_img)
 
     return data, position, out_imgs
