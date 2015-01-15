@@ -4,16 +4,18 @@ import numpy as np
 from scipy import ndimage
 from sklearn import cross_validation
 from sklearn import decomposition as decomp
-from sklearn.svm import SVR
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import roc_auc_score
 np.set_printoptions(suppress=True, precision=3)
 from blurd.util import *
 import click
 from scipy import stats
 
+
 def whiten(x):
     mu, L = np.mean(x,axis=0), np.linalg.cholesky(np.cov(x,rowvar=0,bias=1))
     return np.linalg.solve(L, (x-mu).T).T, L, mu
+
 
 def unwhiten(x, L, mu):
     return L.dot(x) + mu
@@ -24,13 +26,13 @@ def unwhiten(x, L, mu):
 # n_folds = 5
 # seed = 0
 
+
 @click.command()
 @click.argument("filename", type=click.Path(exists=True))
-@click.argument("param-to-predict", type=str, required=True)
 @click.option("--n-runs", default=100, type=int)
 @click.option("--n-folds", default=5, type=int)
 @click.option("--seed", default=0, type=int)
-def predict(filename, param_to_predict, n_runs, n_folds, seed):
+def predict(filename, n_runs, n_folds, seed):
     #####################################
     # Data Preparation
     #####################################
@@ -42,7 +44,20 @@ def predict(filename, param_to_predict, n_runs, n_folds, seed):
     sdf['patient'] = sdf.sample+"-"+sdf.date
 
     # Select only good vials
-    sdf = sdf[sdf.good==True]
+    sdf = sdf[sdf.good == True]
+
+    # Collapse all types of anemia.
+    y = sdf['blood_type'].values.copy()
+    y[y != 'normal'] = 'anemic'
+    y[y == 'normal'] = 'normal'
+    sdf['blood_type'] = y
+
+    # Gather the blood-type for prediction
+    int_y = sdf['blood_type'].values.copy()
+    int_y[int_y == 'anemic'] = 1
+    int_y[int_y == 'normal'] = 0
+    int_y = int_y.astype('int32')
+    sdf['int_blood_type'] = int_y
 
     # Get the patients
     patients = sdf.patient.unique()
@@ -50,7 +65,7 @@ def predict(filename, param_to_predict, n_runs, n_folds, seed):
     # For each patient, get the blood-type
     patient_blood_type = []
     for patient in patients:
-        patient_blood_type.append(sdf[sdf.patient==patient].blood_type.values[0])
+        patient_blood_type.append(sdf[sdf.patient == patient].blood_type.values[0])
     patient_blood_type = np.array(patient_blood_type)
 
     # Hold out a final test set
@@ -59,8 +74,8 @@ def predict(filename, param_to_predict, n_runs, n_folds, seed):
 
     train_patients = patients[train_patient_idx]
     train_patient_blood_type = patient_blood_type[train_patient_idx]
-    test_patients = patients[test_patient_idx]
-    test_patient_blood_type = patient_blood_type[test_patient_idx]
+    # test_patients = patients[test_patient_idx]
+    # test_patient_blood_type = patient_blood_type[test_patient_idx]
 
     # Divide the training patients into the remaining folds for K-fold cross-validated training.
     # This will help us guard a little against overfitting.
@@ -68,19 +83,14 @@ def predict(filename, param_to_predict, n_runs, n_folds, seed):
 
     # Stack all data and labels for indexing in a moment
     all_data = np.vstack(sdf.data.values)
-    blood_param = sdf[param_to_predict].values.astype('float')
+    blood_param = sdf['int_blood_type'].values
 
     all_train_idx = np.array([p in train_patients for p in sdf.patient])
-    all_test_idx = np.array([p in test_patients for p in sdf.patient])
-
-
-
+    # all_test_idx = np.array([p in test_patients for p in sdf.patient])
 
     #####################################
     # Set up experiment
     #####################################
-
-
 
     # Define parameters to optimize
     parameters = dict(nphase=dict(type='integer', min=2, max=3),
@@ -90,19 +100,15 @@ def predict(filename, param_to_predict, n_runs, n_folds, seed):
                         softwindow_variance = dict(type='float', min=1, max=1000),
                         reduc_method=dict(type='int', min=0,max=3),
                         C=dict(type='float', min=1e-2, max=1e2),
-                        gamma=dict(type='float', min=1e-2, max=1e2),
-                        epsilon=dict(type='float', min=1e-2, max=1e2))
-                        # whiten_input=dict(type='integer', min=0, max=1),
-                        # whiten_output=dict(type='integer', min=0, max=1))
+                        penalty=dict(type='enum', options=['l1','l2']))
 
-    name = 'Predicting %s (patient-based folds)' % (param_to_predict)
-    description = 'Predicting %s from blood test' % (param_to_predict)
-    outcome = dict(name="R2")
-    scientist = whetlab.Experiment(name=name, access_token=None, 
+    name = 'Classifying IDA (patient-based folds)'
+    description = ''
+    outcome = dict(name="AUC")
+    scientist = whetlab.Experiment(name=name, access_token=None,
                                    description=description,
-                                   parameters=parameters, 
+                                   parameters=parameters,
                                    outcome=outcome)
-
 
     #####################################
     # Optimize
@@ -115,22 +121,20 @@ def predict(filename, param_to_predict, n_runs, n_folds, seed):
         else:
             job = scientist.suggest()
         print job
-        
-        # Test for reasonable parameters, first
-        
+
         # Prepare the blood parameter index
-        blood_param_idx = ((sdf.run_time == 2*int(job['centrifugation_time'])) & (sdf.ida == "IDA%d"%job['nphase'])).values
+        blood_param_idx = ((sdf.run_time == 2*int(job['centrifugation_time'])) & (sdf.ida == "IDA%d" % job['nphase'])).values
 
         # Apply a soft window to the data (better than cropping)
         window = stats.norm.pdf(np.arange(all_data.shape[1]), loc=job['softwindow_mean'], scale=job['softwindow_variance'])
         window /= window.max()
         cropped_data = all_data*window[None,:]
 
-        # NOTE: Doing the unsupervised step on all the training data. 
+        # NOTE: Doing the unsupervised step on all the training data.
         # Other options include:
         # - all data (it's unsupervised so should be fine)
         # - all training data, irrespective of blood parameters (e.g. include all centrifugation times together)
-        all_train_data = cropped_data[all_train_idx&blood_param_idx].copy()
+        all_train_data = cropped_data[all_train_idx & blood_param_idx].copy()
         reduc_method = ['raw','pca','nmf','kernelpca'][job['reduc_method']]
         if reduc_method == "raw":
             processed_data = ndimage.zoom(cropped_data,(1,job['n_dimensions']/cropped_data.shape[1]))
@@ -149,47 +153,33 @@ def predict(filename, param_to_predict, n_runs, n_folds, seed):
             scientist.update(job, np.nan)
             continue
 
-        # Possible further statistical preprocessing of the data
-        # if job['whiten_input']:
-        #     processed_data, L, mu = whiten(processed_data)
-        #     if np.isnan(processed_data).any():
-        #         scientist.update(job, np.nan)
-        #         continue
-        # if job['whiten_output']:
-        #     processed_blood_param,L,mu = whiten(blood_param)
-        # else:
-        processed_blood_param = blood_param.copy()
-    
-        
-
-        r2_across_folds = []
+        auc_across_folds = []
         for train, validation in trainvalidation_folds:
-            
+
             # Prepare the indices for this fold (only using the training patients)
-            train_idx = blood_param_idx&np.array([p in train_patients[train] for p in sdf.patient])
-            validation_idx = blood_param_idx&np.array([p in train_patients[validation] for p in sdf.patient])
-            
+            train_idx = blood_param_idx & np.array([p in train_patients[train] for p in sdf.patient])
+            validation_idx = blood_param_idx & np.array([p in train_patients[validation] for p in sdf.patient])
+
             # Get the data and labels
             train_data = processed_data[train_idx]
             validation_data = processed_data[validation_idx]
-            train_y = processed_blood_param[train_idx]
-            validation_y = processed_blood_param[validation_idx]
+            train_y = blood_param[train_idx]
+            validation_y = blood_param[validation_idx]
 
             assert len(train_data) == len(train_y), "Unequal data and label sizes"
             assert len(validation_data) == len(validation_y), "Unequal data and label sizes"
-            
-            # Train a model
-            learner = SVR('rbf', C=job['C'], gamma=job['gamma'], epsilon=job['epsilon']).fit(train_data, train_y)
-            pred_y = learner.predict(validation_data).ravel()
-            this_r2 = r2_score(validation_y, pred_y)
-            r2_across_folds.append(this_r2)
-            
-        r2 = np.mean(r2_across_folds)
 
-        print r2
+            # Train a model
+            learner = LogisticRegression(penalty=job['penalty'], C=job['C'], fit_intercept=True).fit(train_data,train_y)
+            this_auc = roc_auc_score(validation_y, learner.decision_function(validation_data).ravel())
+            auc_across_folds.append(this_auc)
+
+        auc = np.mean(auc_across_folds)
+
+        print auc
 
         # Tell Whetlab about the result
-        scientist.update(job, r2)
+        scientist.update(job, auc)
 
 if __name__ == "__main__":
     predict()
