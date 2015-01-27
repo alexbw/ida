@@ -6,10 +6,11 @@ from sklearn import cross_validation
 from sklearn import decomposition as decomp
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
-np.set_printoptions(suppress=True, precision=3)
-from blurd.util import *
 import click
+from blurd.util import *
 from scipy import stats
+
+np.set_printoptions(suppress=True, precision=3)
 
 
 def whiten(x):
@@ -46,11 +47,16 @@ def predict(filename, n_runs, n_folds, seed):
     # Select only good vials
     sdf = sdf[sdf.good == True]
 
-    # Collapse all types of anemia.
-    y = sdf['blood_type'].values.copy()
-    y[y != 'normal'] = 'anemic'
-    y[y == 'normal'] = 'normal'
-    sdf['blood_type'] = y
+    # Fill in the micro/hypo calls based on these criteria (AND THEN MOVE TO THE EXTRACTION NOTEBOOK)
+    # ALL THESE INDICES ARE TO CALL THE MICRO/HYPOCHROMIC ANEMIC POPULATION
+    hypo_idx = sdf['%Hypo'] >= 3.9
+    anemic_woman_idx = (sdf['Age'] > 15) & (sdf['Sex'] == "F") & (sdf.HGB < 12.0) & hypo_idx
+    anemic_man_idx = (sdf['Age'] > 15) & (sdf['Sex'] == "M") & (sdf.HGB < 13.0) & hypo_idx
+    anemic_infant_idx = (sdf['Age'] < 5) & (sdf.HGB < 11.0) & hypo_idx
+    anemic_child_idx = (sdf['Age'] >= 5) & (sdf['Age'] < 15) & (sdf.HGB < 11.5) & hypo_idx
+    anemic_population_idx = anemic_woman_idx | anemic_man_idx | anemic_infant_idx | anemic_child_idx
+    sdf.blood_type.values[np.argwhere(anemic_population_idx)[()]] = 'anemic'
+    sdf.blood_type.values[np.argwhere(anemic_population_idx == False)[()]] = 'normal'
 
     # Gather the blood-type for prediction
     int_y = sdf['blood_type'].values.copy()

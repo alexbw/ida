@@ -6,10 +6,10 @@ from sklearn import cross_validation
 from sklearn import decomposition as decomp
 from sklearn.svm import SVR
 from sklearn.metrics import r2_score
-np.set_printoptions(suppress=True, precision=3)
 from blurd.util import *
 import click
 from scipy import stats
+np.set_printoptions(suppress=True, precision=3)
 
 
 def whiten(x):
