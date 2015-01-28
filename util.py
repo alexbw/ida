@@ -2,6 +2,7 @@ import numpy as np
 import scipy.ndimage as ndimage
 import skimage.io
 
+
 def sh(i, figsize=(8,1)):
     from pylab import figure, imshow
     figure(figsize=figsize)
@@ -9,6 +10,7 @@ def sh(i, figsize=(8,1)):
         imshow(np.swapaxes(i,0,1))
     else:
         imshow(i.T)
+
 
 def get_norep(labels):
     labels_norep = []
@@ -22,6 +24,7 @@ def get_norep(labels):
             labels_norep.append(labels[i])
             durations.append(1)
     return np.array(labels_norep), np.array(durations)
+
 
 def process(img,downsample_fact=0.05):
 
@@ -68,26 +71,29 @@ def process(img,downsample_fact=0.05):
             print "NO PLUG FOUND FOR POSITION %s" % str(pos)
         shifts.append(highs[0])
     test_imgs = [I[shift:,:,:] for I,shift in zip(test_imgs, shifts)]
-    
+
     # Extract fittable data
     data = [-np.median(test_img,axis=1).mean(1) for test_img in test_imgs]
 
     return data, position, out_imgs, shifts
 
+
 def find_highs(data, thresh=100, min_length=15):
-    highs, durations = get_norep((data>thresh).astype('int32'))
-    idx = np.argwhere((durations>min_length)&(highs==1)).ravel()
+    highs, durations = get_norep((data > thresh).astype('int32'))
+    idx = np.argwhere((durations > min_length) & (highs == 1)).ravel()
     cdur = np.r_[0,np.cumsum(durations)]
     regions = np.vstack([cdur[idx],cdur[idx+1]]).T
     return regions
 
+
 def unique_indices(x,unique_x=None):
-    if unique_x == None:
+    if unique_x is None:
         unique_x = np.unique(x)
     new_x = np.zeros_like(x)
     for i,ux in enumerate(unique_x):
-        new_x[x==ux] = i
+        new_x[x == ux] = i
     return new_x, unique_x
+
 
 def do_shift(image, shift, dest_size = (150,20)):
     out = np.zeros(dest_size, dtype='float32')
@@ -96,27 +102,32 @@ def do_shift(image, shift, dest_size = (150,20)):
         out[:h,:w] = image[shift:,:w]
     elif image.ndim == 3:
         out[:h,:w] = image[shift:,:w,:]
-    else: 
+    else:
         raise ValueError("Incorrect image dimensions")
     return out
+
 
 def smooth(signal, std=2):
     "Smooths a 1D signal"
     from scipy.signal import gaussian
     smoothingKernel = gaussian(std*5,std)
     smoothingKernel /= np.sum(smoothingKernel)
-    signal = np.convolve(signal, smoothingKernel, 'same')    
+    signal = np.convolve(signal, smoothingKernel, 'same')
     return signal
+
 
 def local_minima(a):
     return np.r_[True, a[1:] < a[:-1]] & np.r_[a[:-1] < a[1:], True]
 
+
 def local_maxima(a):
     return local_minima(-a)
+
 
 def get_boundary_data(data, k=7, sigma=3):
     w = np.r_[[0]*(k/2),data[k:] - data[:-k],[0]*(k/2)]
     return smooth(w,sigma)
+
 
 def extract_redness(img, saturation_threshold=0.5):
     import skimage.color
@@ -126,10 +137,11 @@ def extract_redness(img, saturation_threshold=0.5):
     value_img[saturation_img < saturation_threshold] = 1.0
     SoverV = saturation_img/value_img
     return SoverV
-    
+
+
 def detect_plug(this_data, threshold = 0.1, valid_range=(3,25)):
     d = np.diff(this_data)
-    d[d<threshold] = 0.0
+    d[d < threshold] = 0.0
     peaks = np.argwhere(local_maxima(d)).ravel()
     peaks = peaks[(peaks > valid_range[0]) & (peaks < valid_range[1])]
     if len(peaks) > 0:
