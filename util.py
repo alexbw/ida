@@ -129,7 +129,7 @@ def get_boundary_data(data, k=7, sigma=3):
     return smooth(w,sigma)
 
 
-def extract_redness(img, saturation_threshold=0.5):
+def extract_redness(img, saturation_threshold=0.5, hue_range=(-np.inf,np.inf)):
     import skimage.color
     img_lab = skimage.color.rgb2hsv(img).astype('float32')
     saturation_img = img_lab[:,:,1]
