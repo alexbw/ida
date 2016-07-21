@@ -12,6 +12,8 @@ from scipy import stats
 
 np.set_printoptions(suppress=True, precision=3)
 
+raise ValueError("This file no longer works, because it depended on whetlab, a company that is now out of business")
+
 
 def whiten(x):
     mu, L = np.mean(x,axis=0), np.linalg.cholesky(np.cov(x,rowvar=0,bias=1))
