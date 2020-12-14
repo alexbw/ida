@@ -1,6 +1,6 @@
 # IDA
 
-This code accompanies the publication (in review) from the Whitesides lab to Lab on a Chip, concerning automated analysis of red blood cell health using affordable field tests. Specifically, this code implements the automated extraction of scanned AMPS tubes from flatbed scanner images, the distillation of those images into 1D data traces, and then the automated identification of the anemic disease state of the blood in those 1D data traces, as well as the prediction of continuously-varying red blood cell (RBC) parameters.
+This code accompanies the publication from the Whitesides lab to Lab on a Chip, concerning automated analysis of red blood cell health using affordable field tests. Specifically, this code implements the automated extraction of scanned AMPS tubes from flatbed scanner images, the distillation of those images into 1D data traces, and then the automated identification of the anemic disease state of the blood in those 1D data traces, as well as the prediction of continuously-varying red blood cell (RBC) parameters.
 
 ## Installation
 
